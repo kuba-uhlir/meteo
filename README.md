@@ -21,9 +21,8 @@ barevné/animované ikony počasí ([Meteocons](https://bas.dev/work/meteocons),
   (ikona, min/max, srážky, vítr), východ/západ slunce.
 - **Grafy historie** s přepínačem **24 h / 7 dní / 30 dní**: teplota + rosný bod,
   vlhkost, tlak, vítr + nárazy, srážky, sluneční záření + UV. Interaktivní tooltip.
-- **PWA + instalace na plochu**: banner „Nainstalovat aplikaci" (Android/Chrome přes
-  `beforeinstallprompt`, na iOS Safari návod *Sdílet → Přidat na plochu*), service worker,
-  offline shell + poslední data.
+- **PWA**: manifest + service worker (offline shell + poslední data). Web lze ručně
+  „přidat na plochu" a běží na celou obrazovku, ale appka k tomu sama nevybízí.
 - **Design**: tmavý/světlý motiv (přepínač), zaoblené karty, dynamické barvy podle
   hodnot, pull-to-refresh, tlačítko obnovit, auto-refresh každých 5 min.
 
@@ -153,12 +152,9 @@ Ikony počasí i metrik jsou [Meteocons](https://bas.dev/work/meteocons) od Bas 
 (fungují offline, bez CDN). Přemapování na WMO kódy je v `js/wmo.js`. Chceš-li ikony
 znovu stáhnout nebo přidat další, spusť `scripts/fetch_weather_icons.sh`.
 
-## 📲 Instalace na plochu (návod pro tebe)
-- **Android / Chrome:** otevři web → nahoře vyskočí banner **Instalovat**, nebo menu
-  prohlížeče → *Přidat na plochu / Instalovat aplikaci*.
-- **iPhone / Safari:** tlačítko **Sdílet** → **Přidat na plochu**.
-- Po instalaci běží na celou obrazovku jako nativní appka (bez adresního řádku).
-- Podmínka: web musí běžet přes **HTTPS** (na `localhost` to jde taky).
+## 🔎 Indexace
+Web je označený `noindex, nofollow` (meta v `index.html`) a `robots.txt` zakazuje
+crawlerům přístup — do vyhledávačů se tedy nedostane.
 
 ---
 

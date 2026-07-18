@@ -14,7 +14,6 @@ const DROP = '<svg viewBox="0 0 24 24"><path d="M12 2s7 8 7 13a7 7 0 1 1-14 0c0-
 let currentRange = "1day";
 let refreshTimer = null;
 let heroCondition = { code: null, isDay: true };
-let deferredInstall = null;
 
 // ---------------------------------------------------------------------------
 //  Aktuální stav
@@ -261,47 +260,6 @@ function initRefresh() {
 }
 
 // ---------------------------------------------------------------------------
-//  PWA instalace (Android beforeinstallprompt + iOS návod)
-// ---------------------------------------------------------------------------
-function initInstall() {
-  const banner = el("install-banner");
-  const btn = el("install-btn");
-  const hint = el("install-hint");
-
-  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
-  if (isStandalone || localStorage.getItem("meteo_install_dismissed")) return;
-
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-
-  window.addEventListener("beforeinstallprompt", (e) => {
-    e.preventDefault();
-    deferredInstall = e;
-    banner.hidden = false;
-  });
-
-  btn?.addEventListener("click", async () => {
-    if (deferredInstall) {
-      deferredInstall.prompt();
-      const { outcome } = await deferredInstall.userChoice;
-      if (outcome === "accepted") banner.hidden = true;
-      deferredInstall = null;
-    }
-  });
-
-  el("install-close")?.addEventListener("click", () => {
-    banner.hidden = true;
-    localStorage.setItem("meteo_install_dismissed", "1");
-  });
-
-  // iOS Safari nemá beforeinstallprompt -> ukaž návod
-  if (isIOS && !isStandalone) {
-    hint.innerHTML = 'Klepni na <b>Sdílet</b> → <b>Přidat na plochu</b>';
-    btn.style.display = "none";
-    banner.hidden = false;
-  }
-}
-
-// ---------------------------------------------------------------------------
 //  Service worker
 // ---------------------------------------------------------------------------
 function initSW() {
@@ -317,7 +275,6 @@ function boot() {
   initTheme();
   initRangeSwitch();
   initRefresh();
-  initInstall();
   initSW();
   loadAll();
 }

@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>Meteo Vícemilice</title>
   <meta name="description" content="Osobní meteostanice Vícemilice — živá data a předpověď" />
+  <meta name="robots" content="noindex, nofollow, noarchive, noimageindex" />
+  <meta name="googlebot" content="noindex, nofollow" />
   <meta name="theme-color" content="#0b1020" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -50,16 +52,6 @@
 
     <!-- ============ chyba + instalace ============ -->
     <div id="error-box" class="error-box" hidden></div>
-
-    <div id="install-banner" class="install-banner" hidden>
-      <img src="./icons/icon-192.png" class="install-icon" alt="" />
-      <div class="install-text">
-        <b>Nainstalovat aplikaci</b>
-        <span id="install-hint">Přidat Meteo na plochu telefonu</span>
-      </div>
-      <button id="install-btn" class="install-cta">Instalovat</button>
-      <button id="install-close" class="install-x" aria-label="Zavřít">✕</button>
-    </div>
 
     <!-- ============ DLAŽDICE ============ -->
     <section class="tiles">
@@ -114,7 +106,8 @@
       </div>
     </section>
 
-    <!-- ============ HLAVNÍ GRAF ============ -->
+    <!-- ============ HLAVNÍ GRAF / HISTORIE ============ -->
+    <h2 class="section-title">Historie stanice</h2>
     <section class="card chart-card">
       <div class="chart-head">
         <div class="segmented">
