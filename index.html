@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="cs" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <title>Meteo Vícemilice</title>
+  <meta name="description" content="Osobní meteostanice Vícemilice — živá data a předpověď" />
+  <meta name="theme-color" content="#0b1020" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Meteo" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <div id="ptr" class="ptr"><span class="ptr-spinner">↻</span></div>
+
+  <div class="app">
+    <!-- ============ HERO ============ -->
+    <section class="hero">
+      <div class="hero-aurora"></div>
+      <div class="hero-content">
+        <div class="hero-head">
+          <div>
+            <h1 class="hero-loc">
+              <span id="hero-place">Vícemilice</span>
+              <svg class="loc-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l18-8-8 18-2-8-8-2z" fill="currentColor"/></svg>
+            </h1>
+            <div class="hero-date" id="hero-date">—</div>
+          </div>
+          <div class="hero-actions">
+            <button id="theme-btn" class="ghost-btn" title="Přepnout motiv" aria-label="Motiv">☀️</button>
+            <button id="refresh-btn" class="ghost-btn" title="Obnovit" aria-label="Obnovit">↻</button>
+          </div>
+        </div>
+
+        <div class="hero-main">
+          <div class="hero-left">
+            <div class="hero-temp"><span id="hero-temp">–</span><span class="deg">°</span></div>
+            <div class="hero-feels">Pocitově <b id="hero-feels">–</b>°</div>
+            <div class="hero-badge"><span class="badge-dot"></span> Weather Underground</div>
+          </div>
+          <img class="hero-icon" id="hero-icon" src="./icons/w/anim/clear-day.svg" alt="" />
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ chyba + instalace ============ -->
+    <div id="error-box" class="error-box" hidden></div>
+
+    <div id="install-banner" class="install-banner" hidden>
+      <img src="./icons/icon-192.png" class="install-icon" alt="" />
+      <div class="install-text">
+        <b>Nainstalovat aplikaci</b>
+        <span id="install-hint">Přidat Meteo na plochu telefonu</span>
+      </div>
+      <button id="install-btn" class="install-cta">Instalovat</button>
+      <button id="install-close" class="install-x" aria-label="Zavřít">✕</button>
+    </div>
+
+    <!-- ============ DLAŽDICE ============ -->
+    <section class="tiles">
+      <div class="tile">
+        <img class="tile-ic" src="./icons/w/humidity.svg" alt="" />
+        <div class="tile-body">
+          <div class="tile-label">Vlhkost</div>
+          <div class="tile-val" id="t-humidity">–</div>
+        </div>
+      </div>
+
+      <div class="tile">
+        <img class="tile-ic" src="./icons/w/windsock.svg" alt="" />
+        <div class="tile-body">
+          <div class="tile-label">Vítr</div>
+          <div class="tile-val" id="t-wind">–</div>
+        </div>
+        <span class="tile-corner wind-corner"><b id="wind-dir-txt">–</b><svg class="dir-arrow" id="wind-arrow" viewBox="0 0 24 24"><path d="M12 2l4 9-4-2-4 2 4-9z" fill="currentColor"/></svg></span>
+      </div>
+
+      <div class="tile">
+        <img class="tile-ic" src="./icons/w/barometer.svg" alt="" />
+        <div class="tile-body">
+          <div class="tile-label">Tlak</div>
+          <div class="tile-val" id="t-pressure">–</div>
+        </div>
+        <span class="tile-corner trend" id="t-pressure-trend">→</span>
+      </div>
+
+      <div class="tile">
+        <img class="tile-ic" src="./icons/w/raindrop.svg" alt="" />
+        <div class="tile-body">
+          <div class="tile-label">Rosný bod</div>
+          <div class="tile-val" id="t-dewpt">–</div>
+        </div>
+      </div>
+
+      <div class="tile">
+        <img class="tile-ic" src="./icons/w/uv-index.svg" alt="" />
+        <div class="tile-body">
+          <div class="tile-label">UV <span id="t-uv-level">–</span></div>
+          <div class="tile-val" id="t-uv">–</div>
+        </div>
+      </div>
+
+      <div class="tile">
+        <img class="tile-ic" src="./icons/w/raindrops.svg" alt="" />
+        <div class="tile-body">
+          <div class="tile-label">Srážky</div>
+          <div class="tile-val" id="t-precip-total">–</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ HLAVNÍ GRAF ============ -->
+    <section class="card chart-card">
+      <div class="chart-head">
+        <div class="segmented">
+          <button class="seg-btn active" data-range="1day">24 h</button>
+          <button class="seg-btn" data-range="7day">7 dní</button>
+          <button class="seg-btn" data-range="30day">30 dní</button>
+        </div>
+        <div class="legend">
+          <span class="lg lg-temp"><i></i>Teplota</span>
+          <span class="lg lg-dew"><i></i>Rosný bod</span>
+        </div>
+      </div>
+      <div id="range-note" class="range-note" hidden></div>
+      <div class="chart-main-wrap"><canvas id="chart-main"></canvas></div>
+    </section>
+
+    <!-- ============ HODINOVÁ PŘEDPOVĚĎ ============ -->
+    <section class="hourly-scroll" id="forecast-hourly"></section>
+
+    <!-- ============ 7DENNÍ PŘEDPOVĚĎ ============ -->
+    <h2 class="section-title">Předpověď na 7 dní</h2>
+    <section class="card daily-card" id="forecast-daily"></section>
+
+    <!-- ============ DALŠÍ GRAFY ============ -->
+    <details class="more-charts">
+      <summary>Další grafy (vlhkost, tlak, vítr, srážky, záření)</summary>
+      <div class="chart-block"><h3>Vlhkost</h3><div class="chart-wrap"><canvas id="chart-hum"></canvas></div></div>
+      <div class="chart-block"><h3>Tlak</h3><div class="chart-wrap"><canvas id="chart-press"></canvas></div></div>
+      <div class="chart-block"><h3>Vítr + nárazy</h3><div class="chart-wrap"><canvas id="chart-wind"></canvas></div></div>
+      <div class="chart-block"><h3>Srážky</h3><div class="chart-wrap"><canvas id="chart-precip"></canvas></div></div>
+      <div class="chart-block"><h3>Sluneční záření + UV</h3><div class="chart-wrap"><canvas id="chart-solar"></canvas></div></div>
+    </details>
+
+    <!-- ============ SLUNCE ============ -->
+    <footer class="sunbar">
+      <span class="sun-item"><img src="./icons/w/sunrise.svg" alt="" />Východ <b id="sun-rise">–</b></span>
+      <span class="sun-sep">|</span>
+      <span class="sun-item"><img src="./icons/w/sunset.svg" alt="" />Západ <b id="sun-set">–</b></span>
+    </footer>
+
+    <div class="foot-meta">
+      <span id="foot-station">–</span>
+      <span id="last-sync">–</span>
+    </div>
+  </div>
+
+  <script src="./vendor/chart.umd.min.js"></script>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

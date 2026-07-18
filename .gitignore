@@ -1,0 +1,13 @@
+# Lokální nastavení Claude Code (per-machine, nepatří do repa)
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
+.idea/
+
+# Logy
+*.log
