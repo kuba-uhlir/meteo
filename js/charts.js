@@ -46,6 +46,25 @@ function points(obs, get) {
   return (obs || []).map((o) => ({ x: tsOf(o), y: safe(get(o)) })).filter((p) => p.x != null);
 }
 
+// Lehké zjemnění hustých 24h dat: průměr do 15min košů (reálné hodnoty, jen
+// vyhlazený šum a celočíselné schody). 7d/30d se nechává (už jsou řídká).
+function smoothPoints(pts, range) {
+  if (range !== "1day" || pts.length < 30) return pts;
+  const BUCKET = 15 * 60 * 1000;
+  const map = new Map();
+  pts.forEach((p) => {
+    if (p.y == null) return;
+    const b = Math.round(p.x / BUCKET) * BUCKET;
+    const e = map.get(b) || { sum: 0, n: 0 };
+    e.sum += p.y; e.n++; map.set(b, e);
+  });
+  return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([x, e]) => ({ x, y: +(e.sum / e.n).toFixed(2) }));
+}
+// body veličiny se zjemněním podle období
+function series(obs, get, range) {
+  return smoothPoints(points(obs, get), range);
+}
+
 const DAY = 24 * 3600 * 1000;
 function periodBounds(range) {
   const max = Date.now();
@@ -111,7 +130,8 @@ function baseOptions(c, { unit = "", legend = false, range = "1day" } = {}) {
       x: xTimeScale(c, range),
       y: { grid: { color: c.grid }, ticks: { color: c.tick, font: { size: 10 }, maxTicksLimit: 5 } },
     },
-    elements: { point: { radius: 0, hitRadius: 14, hoverRadius: 5, hoverBorderWidth: 2 }, line: { borderWidth: 2.5, tension: 0.4 } },
+    elements: { point: { radius: 0, hitRadius: 14, hoverRadius: 5, hoverBorderWidth: 2 },
+                line: { borderWidth: 2.5, cubicInterpolationMode: "monotone" } },
   };
 }
 
@@ -131,9 +151,9 @@ export function renderMainChart(observations, range) {
     type: "line",
     data: {
       datasets: [
-        { label: "Teplota", data: points(observations, (o) => o.metric?.tempAvg), borderColor: c.temp,
+        { label: "Teplota", data: series(observations, (o) => o.metric?.tempAvg, range), borderColor: c.temp,
           backgroundColor: withFill(c.temp), fill: true, pointBackgroundColor: c.temp, pointBorderColor: "#fff", order: 1 },
-        { label: "Rosný bod", data: points(observations, (o) => o.metric?.dewptAvg), borderColor: c.dew,
+        { label: "Rosný bod", data: series(observations, (o) => o.metric?.dewptAvg, range), borderColor: c.dew,
           backgroundColor: withFill(c.dew), fill: true, pointBackgroundColor: c.dew, pointBorderColor: "#fff", order: 2 },
       ],
     },
@@ -151,11 +171,11 @@ export function renderCharts(observations, range) {
     charts[id] = new Chart(el, { type: "line", data: { datasets }, options: baseOptions(c, { unit, legend: datasets.length > 1, range }) });
   };
 
-  line("chart-hum", [{ label: "Vlhkost", data: points(observations, (o) => o.humidityAvg), borderColor: c.hum, backgroundColor: withFill(c.hum), fill: true }], " %");
-  line("chart-press", [{ label: "Tlak", data: points(observations, (o) => o.metric?.pressureMax), borderColor: c.press, backgroundColor: withFill(c.press), fill: true }], " hPa");
+  line("chart-hum", [{ label: "Vlhkost", data: series(observations, (o) => o.humidityAvg, range), borderColor: c.hum, backgroundColor: withFill(c.hum), fill: true }], " %");
+  line("chart-press", [{ label: "Tlak", data: series(observations, (o) => o.metric?.pressureMax, range), borderColor: c.press, backgroundColor: withFill(c.press), fill: true }], " hPa");
   line("chart-wind", [
-    { label: "Vítr", data: points(observations, (o) => o.metric?.windspeedAvg), borderColor: c.wind, backgroundColor: withFill(c.wind), fill: true },
-    { label: "Nárazy", data: points(observations, (o) => o.metric?.windgustHigh), borderColor: c.gust, fill: false, borderDash: [4, 3] },
+    { label: "Vítr", data: series(observations, (o) => o.metric?.windspeedAvg, range), borderColor: c.wind, backgroundColor: withFill(c.wind), fill: true },
+    { label: "Nárazy", data: series(observations, (o) => o.metric?.windgustHigh, range), borderColor: c.gust, fill: false, borderDash: [4, 3] },
   ], " km/h");
 
   destroy("chart-precip");
@@ -169,8 +189,8 @@ export function renderCharts(observations, range) {
     charts["chart-solar"] = new Chart(sel, {
       type: "line",
       data: { datasets: [
-        { label: "Záření W/m²", data: points(observations, (x) => x.solarRadiationHigh), borderColor: c.solar, backgroundColor: withFill(c.solar), fill: true, yAxisID: "y" },
-        { label: "UV", data: points(observations, (x) => x.uvHigh), borderColor: c.uv, fill: false, yAxisID: "y1" },
+        { label: "Záření W/m²", data: series(observations, (x) => x.solarRadiationHigh, range), borderColor: c.solar, backgroundColor: withFill(c.solar), fill: true, yAxisID: "y" },
+        { label: "UV", data: series(observations, (x) => x.uvHigh, range), borderColor: c.uv, fill: false, yAxisID: "y1" },
       ] },
       options: { ...o, scales: {
         x: o.scales.x,
@@ -311,12 +331,12 @@ export function renderDetailChart(observations, range, cfg) {
 
   const color = cssVar(cfg.colorVar, "#7aa2ff");
   const datasets = [{
-    label: cfg.label, data: points(obs, cfg.get), borderColor: color,
+    label: cfg.label, data: series(obs, cfg.get, range), borderColor: color,
     backgroundColor: withFill(color), fill: true, pointBackgroundColor: color, pointBorderColor: "#fff",
   }];
   if (cfg.get2) {
     const col2 = cssVar(cfg.color2Var || "--uv", "#fbbf24");
-    datasets.push({ label: cfg.label2, data: points(obs, cfg.get2), borderColor: col2, fill: false, borderDash: [4, 3] });
+    datasets.push({ label: cfg.label2, data: series(obs, cfg.get2, range), borderColor: col2, fill: false, borderDash: [4, 3] });
   }
   charts["detail-chart"] = new Chart(el, {
     type: "line", data: { datasets },
