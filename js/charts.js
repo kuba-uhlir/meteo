@@ -1,6 +1,8 @@
 // ============================================================================
-//  Grafy (Chart.js). Hlavní graf = teplota + rosný bod (gradient, tooltip),
-//  ostatní (vlhkost, tlak, vítr, srážky, záření) v rozbalovací sekci.
+//  Grafy (Chart.js + luxon time adapter).
+//  Osa X = časová s pevným min/max podle období (24 h / 7 dní / 30 dní),
+//  takže vždy pokrývá celé období bez ohledu na to, kolik dat reálně je.
+//  Data se vykreslí podle skutečného času; chybějící úsek zůstane prázdný.
 // ============================================================================
 
 /* global Chart */
@@ -27,18 +29,27 @@ function colors() {
   };
 }
 
-function labelFor(o, range) {
-  const local = o.obsTimeLocal || "";
-  const m = local.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
-  if (!m) return local;
-  const [, , mo, d, hh, mm] = m;
-  if (range === "1day") return `${hh}:${mm}`;
-  if (range === "30day") return `${d}.${mo}.`;
-  return `${d}.${mo} ${hh}h`;
+// obsTimeLocal "2026-07-18 16:07:03" -> epoch ms (v lokálním čase prohlížeče)
+function tsOf(o) {
+  const s = (o.obsTimeLocal || "").replace(" ", "T");
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
 }
 function safe(v) {
   return (v === null || v === undefined || Number.isNaN(Number(v))) ? null : Number(v);
 }
+// pole {x,y} bodů z pozorování (přeskočí body bez času)
+function points(obs, get) {
+  return (obs || []).map((o) => ({ x: tsOf(o), y: safe(get(o)) })).filter((p) => p.x != null);
+}
+
+const DAY = 24 * 3600 * 1000;
+function periodBounds(range) {
+  const max = Date.now();
+  const days = range === "30day" ? 30 : range === "7day" ? 7 : 1;
+  return { min: max - days * DAY, max };
+}
+
 function hexA(color, alpha) {
   const c = color.trim();
   if (c.startsWith("#")) {
@@ -48,15 +59,38 @@ function hexA(color, alpha) {
   }
   return c;
 }
-
 function gradient(ctx, area, color) {
   const g = ctx.createLinearGradient(0, area.top, 0, area.bottom);
   g.addColorStop(0, hexA(color, 0.35));
   g.addColorStop(1, hexA(color, 0.02));
   return g;
 }
+const withFill = (color) => (ctx) => {
+  const { ctx: cx, chartArea } = ctx.chart;
+  return chartArea ? gradient(cx, chartArea, color) : hexA(color, 0.2);
+};
 
-function baseOptions(c, { unit = "", legend = false } = {}) {
+// Časová osa X s pevným rozsahem podle období.
+function xTimeScale(c, range) {
+  const { min, max } = periodBounds(range);
+  const unit = range === "1day" ? "hour" : "day";
+  return {
+    type: "time", min, max,
+    time: {
+      unit,
+      displayFormats: { hour: "HH:mm", day: "d.M." },
+      tooltipFormat: range === "1day" ? "d.M. HH:mm" : "ccc d.M.",
+    },
+    grid: { color: c.grid, drawTicks: false },
+    ticks: {
+      color: c.tick, maxRotation: 0, autoSkip: true, source: "auto",
+      maxTicksLimit: range === "1day" ? 7 : range === "7day" ? 8 : 8,
+      font: { size: 10 },
+    },
+  };
+}
+
+function baseOptions(c, { unit = "", legend = false, range = "1day" } = {}) {
   return {
     responsive: true, maintainAspectRatio: false,
     interaction: { mode: "index", intersect: false },
@@ -70,7 +104,7 @@ function baseOptions(c, { unit = "", legend = false } = {}) {
       },
     },
     scales: {
-      x: { grid: { color: c.grid, drawTicks: false }, ticks: { color: c.tick, maxRotation: 0, autoSkip: true, maxTicksLimit: 5, font: { size: 10 } } },
+      x: xTimeScale(c, range),
       y: { grid: { color: c.grid }, ticks: { color: c.tick, font: { size: 10 }, maxTicksLimit: 5 } },
     },
     elements: { point: { radius: 0, hitRadius: 14, hoverRadius: 5, hoverBorderWidth: 2 }, line: { borderWidth: 2.5, tension: 0.4 } },
@@ -82,80 +116,61 @@ function destroy(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]
 // ---- HLAVNÍ GRAF: teplota + rosný bod ----
 export function renderMainChart(observations, range) {
   const c = colors();
-  const obs = observations || [];
-  const labels = obs.map((o) => labelFor(o, range));
-  const temp = obs.map((o) => safe(o.metric?.tempAvg));
-  const dew = obs.map((o) => safe(o.metric?.dewptAvg));
-
   destroy("chart-main");
   const el = document.getElementById("chart-main");
   if (!el) return;
 
-  const opts = baseOptions(c, { unit: "°" });
-  // Jemnější osy jako v mockupu
+  const opts = baseOptions(c, { unit: "°", range });
   opts.scales.y.ticks.callback = (v) => v + "°";
-  opts.scales.x.ticks.maxTicksLimit = 5;
-  opts.plugins.tooltip.callbacks = {
-    title: (items) => items[0]?.label ?? "",
-    label: (x) => ` ${x.dataset.label}: ${x.parsed.y ?? "—"}°`,
-  };
 
   charts["chart-main"] = new Chart(el, {
     type: "line",
     data: {
-      labels,
       datasets: [
-        { label: "Teplota", data: temp, borderColor: c.temp,
-          backgroundColor: (ctx) => { const {ctx: cx, chartArea} = ctx.chart; return chartArea ? gradient(cx, chartArea, c.temp) : hexA(c.temp, 0.2); },
-          fill: true, pointBackgroundColor: c.temp, pointBorderColor: "#fff", order: 1 },
-        { label: "Rosný bod", data: dew, borderColor: c.dew,
-          backgroundColor: (ctx) => { const {ctx: cx, chartArea} = ctx.chart; return chartArea ? gradient(cx, chartArea, c.dew) : hexA(c.dew, 0.15); },
-          fill: true, pointBackgroundColor: c.dew, pointBorderColor: "#fff", order: 2 },
+        { label: "Teplota", data: points(observations, (o) => o.metric?.tempAvg), borderColor: c.temp,
+          backgroundColor: withFill(c.temp), fill: true, pointBackgroundColor: c.temp, pointBorderColor: "#fff", order: 1 },
+        { label: "Rosný bod", data: points(observations, (o) => o.metric?.dewptAvg), borderColor: c.dew,
+          backgroundColor: withFill(c.dew), fill: true, pointBackgroundColor: c.dew, pointBorderColor: "#fff", order: 2 },
       ],
     },
     options: opts,
   });
 }
 
-// ---- OSTATNÍ GRAFY ----
+// ---- OSTATNÍ GRAFY (Další grafy) ----
 export function renderCharts(observations, range) {
   const c = colors();
-  const obs = observations || [];
-  const labels = obs.map((o) => labelFor(o, range));
-  const M = (p) => obs.map((o) => safe(o.metric?.[p]));
-  const T = (p) => obs.map((o) => safe(o[p]));
-
   const line = (id, datasets, unit) => {
     destroy(id);
     const el = document.getElementById(id);
     if (!el) return;
-    charts[id] = new Chart(el, { type: "line", data: { labels, datasets }, options: baseOptions(c, { unit, legend: datasets.length > 1 }) });
+    charts[id] = new Chart(el, { type: "line", data: { datasets }, options: baseOptions(c, { unit, legend: datasets.length > 1, range }) });
   };
-  const withFill = (color) => (ctx) => { const {ctx: cx, chartArea} = ctx.chart; return chartArea ? gradient(cx, chartArea, color) : hexA(color, 0.2); };
 
-  line("chart-hum", [{ label: "Vlhkost", data: T("humidityAvg"), borderColor: c.hum, backgroundColor: withFill(c.hum), fill: true }], " %");
-  line("chart-press", [{ label: "Tlak", data: M("pressureMax"), borderColor: c.press, backgroundColor: withFill(c.press), fill: true }], " hPa");
+  line("chart-hum", [{ label: "Vlhkost", data: points(observations, (o) => o.humidityAvg), borderColor: c.hum, backgroundColor: withFill(c.hum), fill: true }], " %");
+  line("chart-press", [{ label: "Tlak", data: points(observations, (o) => o.metric?.pressureMax), borderColor: c.press, backgroundColor: withFill(c.press), fill: true }], " hPa");
   line("chart-wind", [
-    { label: "Vítr", data: M("windspeedAvg"), borderColor: c.wind, backgroundColor: withFill(c.wind), fill: true },
-    { label: "Nárazy", data: M("windgustHigh"), borderColor: c.gust, fill: false, borderDash: [4, 3] },
+    { label: "Vítr", data: points(observations, (o) => o.metric?.windspeedAvg), borderColor: c.wind, backgroundColor: withFill(c.wind), fill: true },
+    { label: "Nárazy", data: points(observations, (o) => o.metric?.windgustHigh), borderColor: c.gust, fill: false, borderDash: [4, 3] },
   ], " km/h");
 
   destroy("chart-precip");
   const pel = document.getElementById("chart-precip");
   if (pel) charts["chart-precip"] = new Chart(pel, {
-    type: "bar", data: { labels, datasets: [{ label: "Srážky", data: M("precipTotal"), backgroundColor: c.precip, borderRadius: 4, maxBarThickness: 14 }] },
-    options: baseOptions(c, { unit: " mm" }),
+    type: "bar",
+    data: { datasets: [{ label: "Srážky", data: precipByDay(observations), backgroundColor: c.precip, borderRadius: 4, maxBarThickness: range === "30day" ? 10 : 26 }] },
+    options: baseOptions(c, { unit: " mm", range }),
   });
 
   destroy("chart-solar");
   const sel = document.getElementById("chart-solar");
   if (sel) {
-    const o = baseOptions(c);
+    const o = baseOptions(c, { range });
     charts["chart-solar"] = new Chart(sel, {
       type: "line",
-      data: { labels, datasets: [
-        { label: "Záření W/m²", data: T("solarRadiationHigh"), borderColor: c.solar, backgroundColor: withFill(c.solar), fill: true, yAxisID: "y" },
-        { label: "UV", data: T("uvHigh"), borderColor: c.uv, fill: false, yAxisID: "y1" },
+      data: { datasets: [
+        { label: "Záření W/m²", data: points(observations, (x) => x.solarRadiationHigh), borderColor: c.solar, backgroundColor: withFill(c.solar), fill: true, yAxisID: "y" },
+        { label: "UV", data: points(observations, (x) => x.uvHigh), borderColor: c.uv, fill: false, yAxisID: "y1" },
       ] },
       options: { ...o, scales: {
         x: o.scales.x,
@@ -166,8 +181,23 @@ export function renderCharts(observations, range) {
   }
 }
 
-// ---- DETAIL GRAF (bottom-sheet, jedna veličina) ----
-//  cfg: { kind:"line"|"precip", label, unit, colorVar, get, get2?, label2?, color2Var? }
+// Denní úhrn srážek -> body {x: poledne dne, y: úhrn}. Úhrn dne = max kumul. precipTotal.
+function precipByDay(obs) {
+  const map = new Map();
+  (obs || []).forEach((o) => {
+    const m = (o.obsTimeLocal || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return;
+    const v = safe(o.metric?.precipTotal);
+    if (v == null) return;
+    map.set(m[0], Math.max(map.get(m[0]) ?? 0, v));
+  });
+  return [...map.entries()].map(([k, v]) => {
+    const [y, mo, d] = k.split("-").map(Number);
+    return { x: new Date(y, mo - 1, d, 12, 0, 0).getTime(), y: v };
+  });
+}
+
+// ---- DETAIL GRAF (bottom-sheet) ----
 export function renderDetailChart(observations, range, cfg) {
   const c = colors();
   destroy("detail-chart");
@@ -177,53 +207,35 @@ export function renderDetailChart(observations, range, cfg) {
 
   if (cfg.kind === "precip") return renderPrecipDetail(el, obs, range, c);
 
-  const labels = obs.map((o) => labelFor(o, range));
   const color = cssVar(cfg.colorVar, "#7aa2ff");
-  const withFill = (col) => (ctx) => { const { ctx: cx, chartArea } = ctx.chart; return chartArea ? gradient(cx, chartArea, col) : hexA(col, 0.2); };
-
   const datasets = [{
-    label: cfg.label, data: obs.map(cfg.get).map(safe), borderColor: color,
+    label: cfg.label, data: points(obs, cfg.get), borderColor: color,
     backgroundColor: withFill(color), fill: true, pointBackgroundColor: color, pointBorderColor: "#fff",
   }];
   if (cfg.get2) {
     const col2 = cssVar(cfg.color2Var || "--uv", "#fbbf24");
-    datasets.push({ label: cfg.label2, data: obs.map(cfg.get2).map(safe), borderColor: col2, fill: false, borderDash: [4, 3] });
+    datasets.push({ label: cfg.label2, data: points(obs, cfg.get2), borderColor: col2, fill: false, borderDash: [4, 3] });
   }
   charts["detail-chart"] = new Chart(el, {
-    type: "line", data: { labels, datasets },
-    options: baseOptions(c, { unit: cfg.unit ? " " + cfg.unit : "", legend: !!cfg.get2 }),
+    type: "line", data: { datasets },
+    options: baseOptions(c, { unit: cfg.unit ? " " + cfg.unit : "", legend: !!cfg.get2, range }),
   });
 }
 
 // Srážky: 24h = kumulativní úhrn v čase, 7d/30d = denní úhrn (sloupce).
 function renderPrecipDetail(el, obs, range, c) {
   if (range === "1day") {
-    const labels = obs.map((o) => labelFor(o, "1day"));
-    const data = obs.map((o) => safe(o.metric?.precipTotal));
-    const withFill = (ctx) => { const { ctx: cx, chartArea } = ctx.chart; return chartArea ? gradient(cx, chartArea, c.precip) : hexA(c.precip, 0.2); };
     charts["detail-chart"] = new Chart(el, {
       type: "line",
-      data: { labels, datasets: [{ label: "Úhrn (kumulativně dnes)", data, borderColor: c.precip, backgroundColor: withFill, fill: true, pointBackgroundColor: c.precip, pointBorderColor: "#fff" }] },
-      options: baseOptions(c, { unit: " mm" }),
+      data: { datasets: [{ label: "Úhrn (kumulativně dnes)", data: points(obs, (o) => o.metric?.precipTotal), borderColor: c.precip, backgroundColor: withFill(c.precip), fill: true, pointBackgroundColor: c.precip, pointBorderColor: "#fff" }] },
+      options: baseOptions(c, { unit: " mm", range }),
     });
     return;
   }
-  // Denní úhrn: seskup podle dne, vezmi max kumulativního precipTotal = úhrn dne.
-  const byDay = new Map();
-  obs.forEach((o) => {
-    const m = (o.obsTimeLocal || "").match(/(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return;
-    const key = `${m[3]}.${m[2]}.`;
-    const v = safe(o.metric?.precipTotal);
-    if (v == null) return;
-    byDay.set(key, Math.max(byDay.get(key) ?? 0, v));
-  });
-  const labels = [...byDay.keys()];
-  const data = [...byDay.values()];
   charts["detail-chart"] = new Chart(el, {
     type: "bar",
-    data: { labels, datasets: [{ label: "Denní úhrn", data, backgroundColor: c.precip, borderRadius: 5, maxBarThickness: 30 }] },
-    options: baseOptions(c, { unit: " mm" }),
+    data: { datasets: [{ label: "Denní úhrn", data: precipByDay(obs), backgroundColor: c.precip, borderRadius: 5, maxBarThickness: range === "30day" ? 12 : 30 }] },
+    options: baseOptions(c, { unit: " mm", range }),
   });
 }
 

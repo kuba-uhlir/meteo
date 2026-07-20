@@ -139,6 +139,8 @@ js/
   wmo.js                   # WMO weather code -> ikona + český popis
   format.js                # jednotky, směr větru, tlakový trend, čas, barvy
 vendor/chart.umd.min.js    # Chart.js (lokálně, kvůli offline)
+vendor/luxon.min.js        # luxon + adaptér = časová osa X grafů
+vendor/chartjs-adapter-luxon.umd.min.js
 icons/                     # PWA ikony aplikace (192, 512, maskable)
   w/                       # ikony počasí (Meteocons) — statické
   w/anim/                  # animované ikony počasí (pro hero)
