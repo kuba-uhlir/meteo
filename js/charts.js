@@ -5,7 +5,10 @@
 //  Data se vykreslí podle skutečného času; chybějící úsek zůstane prázdný.
 // ============================================================================
 
-/* global Chart */
+/* global Chart, luxon */
+
+// Česká jména dnů/měsíců na časové ose a v tooltipu.
+if (window.luxon) window.luxon.Settings.defaultLocale = "cs";
 
 const charts = {};
 
@@ -76,6 +79,7 @@ function xTimeScale(c, range) {
   const unit = range === "1day" ? "hour" : "day";
   return {
     type: "time", min, max,
+    adapters: { date: { locale: "cs" } }, // česká jména dnů/měsíců
     time: {
       unit,
       displayFormats: { hour: "HH:mm", day: "d.M." },
