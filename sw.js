@@ -1,15 +1,17 @@
 // ============================================================================
 //  Service worker — základní offline podpora pro PWA
 //  Strategie:
-//   - App shell (same-origin HTML/CSS/JS/ikony/Chart.js): cache-first
-//     (rychlý start i offline).
+//   - App shell (same-origin HTML/CSS/JS/ikony/Chart.js): stale-while-revalidate
+//     — hned vrátí z cache (rychlý start i offline), na pozadí stáhne aktuální
+//     verzi a přepíše cache. Změny nahrané na server se tak projeví při dalším
+//     otevření (bez nutnosti bumpovat verzi cache).
 //   - API požadavky (weather.com / open-meteo, cross-origin) SW *neřeší* —
 //     nechá je projít rovnou na síť. Offline fallback posledních dat zajišťuje
 //     localStorage v api.js. (Kdyby SW cross-origin fetch obaloval, hrozí
 //     respondWith(undefined) u nezakešovaného požadavku = falešná síťová chyba.)
 // ============================================================================
 
-const CACHE = "meteo-shell-v4";
+const CACHE = "meteo-shell-v5";
 const SHELL = [
   "./",
   "./index.html",
@@ -48,14 +50,17 @@ self.addEventListener("fetch", (e) => {
   // Cross-origin (API, CDN) neobalujeme — ať jde přímo na síť.
   if (url.origin !== self.location.origin) return;
 
-  // App shell (same-origin): cache-first, s doplněním cache za běhu.
-  e.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-      if (res && res.ok && res.type === "basic") {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-      }
-      return res;
-    }).catch(() => caches.match("./index.html")))
-  );
+  // App shell (same-origin): stale-while-revalidate.
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const cached = await cache.match(req);
+    const network = fetch(req)
+      .then((res) => {
+        if (res && res.ok && res.type === "basic") cache.put(req, res.clone()).catch(() => {});
+        return res;
+      })
+      .catch(() => cached || cache.match("./index.html"));
+    // Máme-li cache, vrať ji hned; síť běží na pozadí a obnoví cache.
+    return cached || network;
+  })());
 });

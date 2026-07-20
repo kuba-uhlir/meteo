@@ -27,5 +27,7 @@ export const CONFIG = {
 
   // --- Chování aplikace ---
   AUTO_REFRESH_MS: 5 * 60 * 1000, // auto-refresh každých 5 minut
-  CACHE_TTL_MS: 60 * 1000,        // lokální cache odpovědí (60 s)
+  // Cache naměřených dat/předpovědi: 0 = vypnuto (data vždy čerstvá ze serveru).
+  // Zvyš (např. 60000), pokud bys chtěl šetřit denní limit klíče při častém refreshi.
+  CACHE_TTL_MS: 0,
 };
