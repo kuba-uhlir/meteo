@@ -53,9 +53,9 @@
     <!-- ============ chyba + instalace ============ -->
     <div id="error-box" class="error-box" hidden></div>
 
-    <!-- ============ DLAŽDICE ============ -->
+    <!-- ============ DLAŽDICE (klikací -> detail) ============ -->
     <section class="tiles">
-      <div class="tile">
+      <div class="tile" data-metric="humidity" role="button" tabindex="0" aria-label="Detail: vlhkost">
         <img class="tile-ic" src="./icons/w/humidity.svg" alt="" />
         <div class="tile-body">
           <div class="tile-label">Vlhkost</div>
@@ -63,7 +63,7 @@
         </div>
       </div>
 
-      <div class="tile">
+      <div class="tile" data-metric="wind" role="button" tabindex="0" aria-label="Detail: vítr">
         <img class="tile-ic" src="./icons/w/windsock.svg" alt="" />
         <div class="tile-body">
           <div class="tile-label">Vítr</div>
@@ -72,7 +72,7 @@
         <span class="tile-corner wind-corner"><b id="wind-dir-txt">–</b><svg class="dir-arrow" id="wind-arrow" viewBox="0 0 24 24"><path d="M12 2l4 9-4-2-4 2 4-9z" fill="currentColor"/></svg></span>
       </div>
 
-      <div class="tile">
+      <div class="tile" data-metric="pressure" role="button" tabindex="0" aria-label="Detail: tlak">
         <img class="tile-ic" src="./icons/w/barometer.svg" alt="" />
         <div class="tile-body">
           <div class="tile-label">Tlak</div>
@@ -81,7 +81,7 @@
         <span class="tile-corner trend" id="t-pressure-trend">→</span>
       </div>
 
-      <div class="tile">
+      <div class="tile" data-metric="dew" role="button" tabindex="0" aria-label="Detail: rosný bod">
         <img class="tile-ic" src="./icons/w/raindrop.svg" alt="" />
         <div class="tile-body">
           <div class="tile-label">Rosný bod</div>
@@ -89,7 +89,7 @@
         </div>
       </div>
 
-      <div class="tile">
+      <div class="tile" data-metric="uv" role="button" tabindex="0" aria-label="Detail: UV index">
         <img class="tile-ic" src="./icons/w/uv-index.svg" alt="" />
         <div class="tile-body">
           <div class="tile-label">UV <span id="t-uv-level">–</span></div>
@@ -97,7 +97,7 @@
         </div>
       </div>
 
-      <div class="tile">
+      <div class="tile" data-metric="precip" role="button" tabindex="0" aria-label="Detail: srážky">
         <img class="tile-ic" src="./icons/w/raindrops.svg" alt="" />
         <div class="tile-body">
           <div class="tile-label">Srážky</div>
@@ -151,6 +151,32 @@
     <div class="foot-meta">
       <span id="foot-station">–</span>
       <span id="last-sync">–</span>
+    </div>
+  </div>
+
+  <!-- ============ DETAIL PANEL (bottom-sheet) ============ -->
+  <div id="detail-overlay" class="sheet-overlay" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head">
+        <img id="detail-icon" class="sheet-ic" src="" alt="" />
+        <div class="sheet-titles">
+          <div class="sheet-title" id="detail-title">—</div>
+          <div class="sheet-now" id="detail-now">—</div>
+        </div>
+        <button id="detail-close" class="sheet-x" aria-label="Zavřít">✕</button>
+      </div>
+
+      <div class="sheet-stats" id="detail-stats"></div>
+
+      <div class="segmented sheet-seg" id="detail-seg">
+        <button class="seg-btn" data-drange="1day">24 h</button>
+        <button class="seg-btn active" data-drange="7day">7 dní</button>
+        <button class="seg-btn" data-drange="30day">30 dní</button>
+      </div>
+
+      <div id="detail-note" class="range-note" hidden></div>
+      <div class="sheet-chartwrap"><canvas id="detail-chart"></canvas></div>
     </div>
   </div>
 

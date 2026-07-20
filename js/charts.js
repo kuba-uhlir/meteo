@@ -166,6 +166,67 @@ export function renderCharts(observations, range) {
   }
 }
 
+// ---- DETAIL GRAF (bottom-sheet, jedna veličina) ----
+//  cfg: { kind:"line"|"precip", label, unit, colorVar, get, get2?, label2?, color2Var? }
+export function renderDetailChart(observations, range, cfg) {
+  const c = colors();
+  destroy("detail-chart");
+  const el = document.getElementById("detail-chart");
+  if (!el) return;
+  const obs = observations || [];
+
+  if (cfg.kind === "precip") return renderPrecipDetail(el, obs, range, c);
+
+  const labels = obs.map((o) => labelFor(o, range));
+  const color = cssVar(cfg.colorVar, "#7aa2ff");
+  const withFill = (col) => (ctx) => { const { ctx: cx, chartArea } = ctx.chart; return chartArea ? gradient(cx, chartArea, col) : hexA(col, 0.2); };
+
+  const datasets = [{
+    label: cfg.label, data: obs.map(cfg.get).map(safe), borderColor: color,
+    backgroundColor: withFill(color), fill: true, pointBackgroundColor: color, pointBorderColor: "#fff",
+  }];
+  if (cfg.get2) {
+    const col2 = cssVar(cfg.color2Var || "--uv", "#fbbf24");
+    datasets.push({ label: cfg.label2, data: obs.map(cfg.get2).map(safe), borderColor: col2, fill: false, borderDash: [4, 3] });
+  }
+  charts["detail-chart"] = new Chart(el, {
+    type: "line", data: { labels, datasets },
+    options: baseOptions(c, { unit: cfg.unit ? " " + cfg.unit : "", legend: !!cfg.get2 }),
+  });
+}
+
+// Srážky: 24h = kumulativní úhrn v čase, 7d/30d = denní úhrn (sloupce).
+function renderPrecipDetail(el, obs, range, c) {
+  if (range === "1day") {
+    const labels = obs.map((o) => labelFor(o, "1day"));
+    const data = obs.map((o) => safe(o.metric?.precipTotal));
+    const withFill = (ctx) => { const { ctx: cx, chartArea } = ctx.chart; return chartArea ? gradient(cx, chartArea, c.precip) : hexA(c.precip, 0.2); };
+    charts["detail-chart"] = new Chart(el, {
+      type: "line",
+      data: { labels, datasets: [{ label: "Úhrn (kumulativně dnes)", data, borderColor: c.precip, backgroundColor: withFill, fill: true, pointBackgroundColor: c.precip, pointBorderColor: "#fff" }] },
+      options: baseOptions(c, { unit: " mm" }),
+    });
+    return;
+  }
+  // Denní úhrn: seskup podle dne, vezmi max kumulativního precipTotal = úhrn dne.
+  const byDay = new Map();
+  obs.forEach((o) => {
+    const m = (o.obsTimeLocal || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return;
+    const key = `${m[3]}.${m[2]}.`;
+    const v = safe(o.metric?.precipTotal);
+    if (v == null) return;
+    byDay.set(key, Math.max(byDay.get(key) ?? 0, v));
+  });
+  const labels = [...byDay.keys()];
+  const data = [...byDay.values()];
+  charts["detail-chart"] = new Chart(el, {
+    type: "bar",
+    data: { labels, datasets: [{ label: "Denní úhrn", data, backgroundColor: c.precip, borderRadius: 5, maxBarThickness: 30 }] },
+    options: baseOptions(c, { unit: " mm" }),
+  });
+}
+
 export function refreshChartTheme() {
   const c = colors();
   Object.values(charts).forEach((ch) => {
