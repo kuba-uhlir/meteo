@@ -181,42 +181,64 @@ export function renderCharts(observations, range) {
   }
 }
 
-// Denní úhrn srážek -> body {x: poledne dne, y: úhrn}. Úhrn dne = max kumul. precipTotal.
-function precipByDay(obs) {
+// mapa den "YYYY-MM-DD" -> denní úhrn (max kumulativního precipTotal)
+function precipDayMap(obs) {
   const map = new Map();
   (obs || []).forEach((o) => {
     const m = (o.obsTimeLocal || "").match(/(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return;
     const v = safe(o.metric?.precipTotal);
-    if (v == null) return;
+    if (!m || v == null) return;
     map.set(m[0], Math.max(map.get(m[0]) ?? 0, v));
   });
-  return [...map.entries()].map(([k, v]) => {
-    const [y, mo, d] = k.split("-").map(Number);
-    return { x: new Date(y, mo - 1, d, 12, 0, 0).getTime(), y: v };
-  });
+  return map;
 }
 
-// Hodinové srážky (pro 24h) -> přírůstek kumulativního precipTotal po hodinách.
-function precipHourly(obs) {
+// mapa hodina(ms začátek) -> hodinový přírůstek srážek
+function precipHourMap(obs) {
   const byHour = new Map();
   (obs || []).forEach((o) => {
     const ts = tsOf(o);
     const v = safe(o.metric?.precipTotal);
     if (ts == null || v == null) return;
-    const h = Math.floor(ts / 3600000) * 3600000; // začátek hodiny
-    byHour.set(h, Math.max(byHour.get(h) ?? 0, v)); // kumul. na konci hodiny
+    const h = Math.floor(ts / 3600000) * 3600000;
+    byHour.set(h, Math.max(byHour.get(h) ?? 0, v));
   });
   const entries = [...byHour.entries()].sort((a, b) => a[0] - b[0]);
-  const out = [];
+  const out = new Map();
   let prev = 0;
   for (const [h, cum] of entries) {
     let inc = cum - prev;
     if (inc < 0) inc = cum; // ochrana proti půlnočnímu resetu
-    out.push({ x: h + 1800000, y: Math.max(0, +inc.toFixed(2)) });
+    out.set(h, Math.max(0, +inc.toFixed(2)));
     prev = cum;
   }
   return out;
+}
+
+// Kompletní koše pro období (aby osa pokryla celé období a sloupce seděly
+// pod popisky). Vrací { labels, data, keys(ms) }.
+function precipBuckets(obs, range) {
+  const labels = [], data = [], keys = [];
+  if (range === "1day") {
+    const map = precipHourMap(obs);
+    const nowH = Math.floor(Date.now() / 3600000) * 3600000;
+    for (let h = nowH - 23 * 3600000; h <= nowH; h += 3600000) {
+      labels.push(String(new Date(h).getHours()).padStart(2, "0") + ":00");
+      data.push(map.get(h) ?? 0);
+      keys.push(h);
+    }
+  } else {
+    const days = range === "30day" ? 30 : 7;
+    const map = precipDayMap(obs);
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      labels.push(`${d.getDate()}.${d.getMonth() + 1}.`);
+      data.push(map.get(key) ?? 0);
+      keys.push(d.getTime());
+    }
+  }
+  return { labels, data, keys };
 }
 
 // Plugin: nad sloupce vypíše hodnotu (mm). Nula / prázdné -> nic.
@@ -246,18 +268,32 @@ const barLabelsPlugin = {
   },
 };
 
-// Sloupcový graf srážek (24h = hodinové, 7d/30d = denní) s popisky nad sloupci.
+// Sloupcový graf srážek — kategoriální osa X (popisky vycentrované pod sloupci),
+// 24h = hodinové, 7d/30d = denní. Popisky mm nad sloupci, nula = nic.
 function precipBarChart(el, obs, range, c, label) {
-  const isDay = range !== "1day";
-  const data = isDay ? precipByDay(obs) : precipHourly(obs);
+  const { labels, data, keys } = precipBuckets(obs, range);
   const thickness = range === "30day" ? 12 : range === "7day" ? 28 : 10;
   const o = baseOptions(c, { unit: " mm", range });
   o.layout = { padding: { top: 18 } };       // místo pro popisky nad sloupci
   o.scales.y.beginAtZero = true;
+  o.scales.x = { // kategoriální osa -> sloupce i popisky vycentrované k sobě
+    grid: { color: c.grid, drawTicks: false },
+    ticks: { color: c.tick, maxRotation: 0, autoSkip: true,
+             maxTicksLimit: range === "1day" ? 7 : range === "7day" ? 7 : 8, font: { size: 10 } },
+  };
   o.plugins.barLabels = { digits: 1 };
+  // tooltip: český den/čas podle původního timestampu
+  o.plugins.tooltip.callbacks = {
+    title: (items) => {
+      const t = keys[items[0]?.dataIndex ?? 0];
+      if (!window.luxon || t == null) return items[0]?.label ?? "";
+      return window.luxon.DateTime.fromMillis(t).toFormat(range === "1day" ? "d.M. HH:mm" : "ccc d.M.");
+    },
+    label: (x) => ` ${x.dataset.label}: ${x.parsed.y ?? "—"} mm`,
+  };
   return new Chart(el, {
     type: "bar",
-    data: { datasets: [{ label, data, backgroundColor: c.precip, borderRadius: isDay ? 5 : 3, maxBarThickness: thickness }] },
+    data: { labels, datasets: [{ label, data, backgroundColor: c.precip, borderRadius: range === "1day" ? 3 : 5, maxBarThickness: thickness }] },
     options: o,
     plugins: [barLabelsPlugin],
   });
