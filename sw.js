@@ -11,7 +11,7 @@
 //     respondWith(undefined) u nezakešovaného požadavku = falešná síťová chyba.)
 // ============================================================================
 
-const CACHE = "meteo-shell-v8";
+const CACHE = "meteo-shell-v9";
 const SHELL = [
   "./",
   "./index.html",

@@ -156,11 +156,7 @@ export function renderCharts(observations, range) {
 
   destroy("chart-precip");
   const pel = document.getElementById("chart-precip");
-  if (pel) charts["chart-precip"] = new Chart(pel, {
-    type: "bar",
-    data: { datasets: [{ label: "Srážky", data: precipByDay(observations), backgroundColor: c.precip, borderRadius: 4, maxBarThickness: range === "30day" ? 10 : 26 }] },
-    options: baseOptions(c, { unit: " mm", range }),
-  });
+  if (pel) charts["chart-precip"] = precipBarChart(pel, observations, range, c, "Srážky");
 
   destroy("chart-solar");
   const sel = document.getElementById("chart-solar");
@@ -197,6 +193,72 @@ function precipByDay(obs) {
   });
 }
 
+// Hodinové srážky (pro 24h) -> přírůstek kumulativního precipTotal po hodinách.
+function precipHourly(obs) {
+  const byHour = new Map();
+  (obs || []).forEach((o) => {
+    const ts = tsOf(o);
+    const v = safe(o.metric?.precipTotal);
+    if (ts == null || v == null) return;
+    const h = Math.floor(ts / 3600000) * 3600000; // začátek hodiny
+    byHour.set(h, Math.max(byHour.get(h) ?? 0, v)); // kumul. na konci hodiny
+  });
+  const entries = [...byHour.entries()].sort((a, b) => a[0] - b[0]);
+  const out = [];
+  let prev = 0;
+  for (const [h, cum] of entries) {
+    let inc = cum - prev;
+    if (inc < 0) inc = cum; // ochrana proti půlnočnímu resetu
+    out.push({ x: h + 1800000, y: Math.max(0, +inc.toFixed(2)) });
+    prev = cum;
+  }
+  return out;
+}
+
+// Plugin: nad sloupce vypíše hodnotu (mm). Nula / prázdné -> nic.
+const barLabelsPlugin = {
+  id: "barLabels",
+  afterDatasetsDraw(chart, _args, opts) {
+    const { ctx } = chart;
+    const digits = opts?.digits ?? 1;
+    const color = cssVar("--text", "#e8ebf2");
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      if (meta.type !== "bar" || meta.hidden) return;
+      meta.data.forEach((bar, i) => {
+        const raw = ds.data[i];
+        const val = raw && typeof raw === "object" ? raw.y : raw;
+        const r = val == null ? 0 : +Number(val).toFixed(digits);
+        if (!(r > 0)) return; // 0 nebo prázdné -> nic
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(String(r), bar.x, bar.y - 3);
+        ctx.restore();
+      });
+    });
+  },
+};
+
+// Sloupcový graf srážek (24h = hodinové, 7d/30d = denní) s popisky nad sloupci.
+function precipBarChart(el, obs, range, c, label) {
+  const isDay = range !== "1day";
+  const data = isDay ? precipByDay(obs) : precipHourly(obs);
+  const thickness = range === "30day" ? 12 : range === "7day" ? 28 : 10;
+  const o = baseOptions(c, { unit: " mm", range });
+  o.layout = { padding: { top: 18 } };       // místo pro popisky nad sloupci
+  o.scales.y.beginAtZero = true;
+  o.plugins.barLabels = { digits: 1 };
+  return new Chart(el, {
+    type: "bar",
+    data: { datasets: [{ label, data, backgroundColor: c.precip, borderRadius: isDay ? 5 : 3, maxBarThickness: thickness }] },
+    options: o,
+    plugins: [barLabelsPlugin],
+  });
+}
+
 // ---- DETAIL GRAF (bottom-sheet) ----
 export function renderDetailChart(observations, range, cfg) {
   const c = colors();
@@ -222,21 +284,10 @@ export function renderDetailChart(observations, range, cfg) {
   });
 }
 
-// Srážky: 24h = kumulativní úhrn v čase, 7d/30d = denní úhrn (sloupce).
+// Srážky: 24h = hodinové srážky, 7d/30d = denní úhrn — vždy sloupce s popisky.
 function renderPrecipDetail(el, obs, range, c) {
-  if (range === "1day") {
-    charts["detail-chart"] = new Chart(el, {
-      type: "line",
-      data: { datasets: [{ label: "Úhrn (kumulativně dnes)", data: points(obs, (o) => o.metric?.precipTotal), borderColor: c.precip, backgroundColor: withFill(c.precip), fill: true, pointBackgroundColor: c.precip, pointBorderColor: "#fff" }] },
-      options: baseOptions(c, { unit: " mm", range }),
-    });
-    return;
-  }
-  charts["detail-chart"] = new Chart(el, {
-    type: "bar",
-    data: { datasets: [{ label: "Denní úhrn", data: precipByDay(obs), backgroundColor: c.precip, borderRadius: 5, maxBarThickness: range === "30day" ? 12 : 30 }] },
-    options: baseOptions(c, { unit: " mm", range }),
-  });
+  const label = range === "1day" ? "Srážky za hodinu" : "Denní úhrn";
+  charts["detail-chart"] = precipBarChart(el, obs, range, c, label);
 }
 
 export function refreshChartTheme() {
