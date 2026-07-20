@@ -38,7 +38,7 @@ async function fetchJson(url, cacheKey) {
     res = await fetch(url, { cache: "no-store" });
   } catch (e) {
     // Síťová chyba / CORS / offline
-    const err = new Error("Nelze se připojit k API (offline nebo CORS).");
+    const err = new Error("Data se teď nepodařilo načíst (dočasný výpadek nebo offline). Zkusím to znovu.");
     err.kind = "network";
     throw err;
   }
@@ -112,21 +112,44 @@ function yyyymmdd(daysBack) {
 
 // Sloučí historii po jednotlivých dnech (fallback, když je all/7day blokovaný).
 //  kind = "hourly" (hodinové záznamy) | "daily" (denní agregát)
+//  Optimalizace proti rate-limitu WU:
+//   - minulé dny jsou neměnné -> berou se z localStorage cache (žádný request)
+//   - jen dnešek se stahuje vždy čerstvě
+//   - zbylé nezakešované dny se stahují po malých dávkách (ne 30 naráz)
 async function getHistoryByDays(kind, days) {
-  const reqs = [];
-  for (let i = days - 1; i >= 0; i--) {
+  const today = yyyymmdd(0);
+  const toFetch = [];   // { i, date, key }
+  const result = new Array(days).fill(null); // index podle i (0 = dnes)
+
+  for (let i = 0; i < days; i++) {
     const date = yyyymmdd(i);
+    const key = `hist_${kind}_${date}`;
+    if (date !== today) {
+      const p = loadPersisted(key);
+      if (p?.data?.observations?.length) { result[i] = p.data.observations; continue; }
+    }
+    toFetch.push({ i, date, key });
+  }
+
+  const fetchOne = ({ i, date, key }) => {
     const url = `${CONFIG.WU_BASE}/history/${kind}` +
       `?stationId=${encodeURIComponent(CONFIG.STATION_ID)}` +
       `&date=${date}&format=json&units=m&apiKey=${encodeURIComponent(CONFIG.API_KEY)}`;
-    reqs.push(
-      fetchJson(url, `hist_${kind}_${date}`)
-        .then((d) => (Array.isArray(d?.observations) ? d.observations : []))
-        .catch(() => []) // jednotlivý den může chybět (204) — přeskoč
-    );
+    return fetchJson(url, key)
+      .then((d) => { result[i] = Array.isArray(d?.observations) ? d.observations : []; })
+      .catch(() => { result[i] = []; }); // 204 / chyba dne — přeskoč
+  };
+
+  // dávky po 6 (šetrné k WAF)
+  const BATCH = 6;
+  for (let s = 0; s < toFetch.length; s += BATCH) {
+    await Promise.all(toFetch.slice(s, s + BATCH).map(fetchOne));
   }
-  const parts = await Promise.all(reqs);
-  return parts.flat();
+
+  // seřaď od nejstaršího po nejnovější (i = days-1 .. 0)
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) if (result[i]) out.push(...result[i]);
+  return out;
 }
 
 // --- Hlavní vstup pro grafy: podle rozsahu vybere endpoint + fallback ---

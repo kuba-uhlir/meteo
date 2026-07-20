@@ -143,7 +143,7 @@ function renderForecast(data) {
 // ---------------------------------------------------------------------------
 async function loadAll() {
   showLoading(true);
-  try { renderCurrent(await getCurrent()); }
+  try { renderCurrent(await getCurrentRetry()); }
   catch (e) { tryPersisted("current", renderCurrent, e); }
 
   getForecast().then(renderForecast).catch((e) => tryPersisted("forecast", renderForecast, e, true));
@@ -165,6 +165,18 @@ async function loadHistory() {
   } catch (e) {
     showError(e.message, e.kind);
   } finally { setChartsLoading(false); }
+}
+
+// Aktuální data s jedním opakovaným pokusem (přechodné výpadky WU/sítě).
+async function getCurrentRetry() {
+  try { return await getCurrent(); }
+  catch (e) {
+    if (e.kind === "network" || e.kind === "http") {
+      await new Promise((r) => setTimeout(r, 1500));
+      return await getCurrent(); // druhý pokus
+    }
+    throw e;
+  }
 }
 
 // Historie pro detail — použij už načtenou (histStore), jinak dotáhni.
