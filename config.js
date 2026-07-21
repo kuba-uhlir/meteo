@@ -10,7 +10,7 @@
 export const CONFIG = {
   // --- Weather Underground PWS ---
   STATION_ID: "IBUOVI30",
-  API_KEY: "131b5fe6169f47129b5fe6169f871206",
+  API_KEY: "84d220e5fe2347f69220e5fe2377f68d",
   WU_BASE: "https://api.weather.com/v2/pws",
 
   // --- Lokalita (pro předpověď z Open-Meteo) ---

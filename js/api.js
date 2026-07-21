@@ -152,8 +152,10 @@ async function getHistoryByDays(kind, days) {
   return out;
 }
 
-// --- Hlavní vstup pro grafy: podle rozsahu vybere endpoint + fallback ---
+// --- Hlavní vstup pro grafy (jednoduchý původní model) ---
 //  range: "1day" | "7day" | "30day"
+//   - 24h a 7 dní: přímo rychlá historie WU (observations/all/{range}) = 1 request
+//   - 30 dní: denní agregáty (history/daily po dnech, cachované) — na vyžádání
 export async function getHistory(range) {
   if (!configOk()) {
     const err = new Error("Chybí STATION_ID nebo API_KEY v config.js.");
@@ -161,32 +163,7 @@ export async function getHistory(range) {
     throw err;
   }
 
-  if (range === "1day") {
-    // Primárně rychlý all/1day; fallback hodinová historie dneška.
-    try {
-      const obs = await getRapidHistory("1day");
-      if (obs.length) return obs;
-    } catch (_) { /* zkus fallback */ }
-    return getHistoryByDays("hourly", 1);
-  }
-
-  if (range === "7day") {
-    // Primárně all/7day (1 request). Když je blokovaný/prázdný -> složit po dnech.
-    try {
-      const obs = await getRapidHistory("7day");
-      if (obs.length) return obs;
-    } catch (_) { /* fallback níže */ }
-    const byDay = await getHistoryByDays("hourly", 7);
-    if (!byDay.length) {
-      const err = new Error("7denní historii se nepodařilo načíst (WU vrátil blokaci nebo prázdno).");
-      err.kind = "empty";
-      throw err;
-    }
-    return byDay;
-  }
-
   if (range === "30day") {
-    // Denní agregáty za posledních 30 dní (history/daily po dnech).
     const byDay = await getHistoryByDays("daily", 30);
     if (!byDay.length) {
       const err = new Error("30denní historii se nepodařilo načíst.");
@@ -196,6 +173,7 @@ export async function getHistory(range) {
     return byDay;
   }
 
+  // 1day / 7day — přímé volání WU rychlé historie
   return getRapidHistory(range);
 }
 

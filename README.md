@@ -48,7 +48,7 @@ Vše je v [`config.js`](config.js):
 
 ```js
 STATION_ID: "IBUOVI30",
-API_KEY:    "131b5fe6169f47129b5fe6169f871206",
+API_KEY:    "84d220e5fe2347f69220e5fe2377f68d",
 LAT: 49.141831, LON: 17.020185,   // pro předpověď (Open-Meteo)
 OM_MODEL: "",                     // "" = best_match; nebo "icon_d2", "meteofrance_arome_france_hd"
 AUTO_REFRESH_MS: 5*60*1000,       // auto-refresh
