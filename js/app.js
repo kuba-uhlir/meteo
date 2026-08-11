@@ -161,10 +161,31 @@ async function loadHistory() {
     histStore[range] = hist;
     renderMainChart(hist, range);
     renderCharts(hist, range);
+    if (histStore["1day"]) renderDailySummary(histStore["1day"]);
     hideError();
   } catch (e) {
     showError(e.message, e.kind);
   } finally { setChartsLoading(false); }
+}
+
+// Přehled za posledních 24 h (min/max) do levého sloupce.
+function renderDailySummary(obs) {
+  const now = Date.now();
+  const recent = (obs || []).filter((o) => {
+    const t = new Date((o.obsTimeLocal || "").replace(" ", "T")).getTime();
+    return !Number.isNaN(t) && t >= now - 24 * 3600e3;
+  });
+  const nums = (get) => recent.map(get).map(Number).filter((v) => !Number.isNaN(v));
+  const t = nums((o) => o.metric?.tempAvg);
+  const h = nums((o) => o.humidityAvg);
+  const p = nums((o) => o.metric?.pressureMax);
+  const g = nums((o) => o.metric?.windgustHigh);
+  const set = (id, txt) => { const e = el(id); if (e) e.textContent = txt; };
+  const R = Math.round;
+  set("s-temp", t.length ? `${R(Math.min(...t))}° / ${R(Math.max(...t))}°` : "–");
+  set("s-hum", h.length ? `${R(Math.min(...h))} / ${R(Math.max(...h))} %` : "–");
+  set("s-press", p.length ? `${R(Math.min(...p))} / ${R(Math.max(...p))} hPa` : "–");
+  set("s-wind", g.length ? `${R(Math.max(...g))} km/h` : "–");
 }
 
 // Historie pro detail — použij už načtenou (histStore), jinak dotáhni.
