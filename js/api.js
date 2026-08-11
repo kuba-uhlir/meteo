@@ -174,9 +174,26 @@ async function getHistoryByDays(kind, days) {
   return out;
 }
 
+// Jeden den historie (history/hourly|daily). Minulý den se cachuje napořád.
+async function getSingleDay(kind, daysBack) {
+  const date = yyyymmdd(daysBack);
+  const key = `hist_${kind}_${date}`;
+  if (daysBack >= 1) {
+    const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+    const dayEnd = midnight.getTime() - (daysBack - 1) * 86400000;
+    const p = loadPersisted(key);
+    if (p?.data && p.ts >= dayEnd) return p.data.observations || [];
+  }
+  const url = `${CONFIG.WU_BASE}/history/${kind}` +
+    `?stationId=${encodeURIComponent(CONFIG.STATION_ID)}` +
+    `&date=${date}&format=json&units=m&apiKey=${encodeURIComponent(CONFIG.API_KEY)}`;
+  const d = await fetchJson(url, key, daysBack === 0 ? TTL.todayHistory : 0);
+  return Array.isArray(d?.observations) ? d.observations : [];
+}
+
 // --- Hlavní vstup pro grafy ---
 //  range: "1day" | "7day" | "30day"
-//   - 24h: observations/all/1day (1 request)
+//   - 24h: klouzavé okno = dnešek (all/1day, 5min) + včerejšek (history/hourly)
 //   - 7 dní: history/hourly po dnech (all/7day vrací 401 -> nepoužitelný)
 //   - 30 dní: history/daily po dnech
 //  Minulé dny se cachují napořád (fetchne se jen dnešek), takže po prvním
@@ -188,7 +205,22 @@ export async function getHistory(range) {
     throw err;
   }
 
-  if (range === "1day") return getRapidHistory("1day");
+  if (range === "1day") {
+    // dnešek (jemný) + včerejšek (hodinový) -> pokrytí klouzavých 24 h
+    const [t, y] = await Promise.allSettled([
+      getRapidHistory("1day"),
+      getSingleDay("hourly", 1),
+    ]);
+    const today = t.status === "fulfilled" ? t.value : [];
+    const yest = y.status === "fulfilled" ? y.value : [];
+    const combined = [...yest, ...today];
+    if (!combined.length) {
+      const err = new Error("Historii se nepodařilo načíst.");
+      err.kind = "empty";
+      throw err;
+    }
+    return combined;
+  }
 
   const obs = range === "30day"
     ? await getHistoryByDays("daily", 30)

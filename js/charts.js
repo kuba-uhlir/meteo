@@ -68,13 +68,8 @@ function series(obs, get, range) {
 const DAY = 24 * 3600 * 1000;
 function periodBounds(range) {
   const max = Date.now();
-  if (range === "1day") {
-    // 24h graf: od dnešní půlnoci (00:00) do teď
-    const start = new Date(); start.setHours(0, 0, 0, 0);
-    return { min: start.getTime(), max };
-  }
-  const days = range === "30day" ? 30 : 7;
-  return { min: max - days * DAY, max };
+  const days = range === "30day" ? 30 : range === "7day" ? 7 : 1;
+  return { min: max - days * DAY, max }; // klouzavé okno: posledních N dní/hodin
 }
 
 function hexA(color, alpha) {
@@ -246,9 +241,8 @@ function precipBuckets(obs, range) {
   const labels = [], data = [], keys = [];
   if (range === "1day") {
     const map = precipHourMap(obs);
-    const start = new Date(); start.setHours(0, 0, 0, 0); // dnešní půlnoc
     const nowH = Math.floor(Date.now() / 3600000) * 3600000;
-    for (let h = start.getTime(); h <= nowH; h += 3600000) {
+    for (let h = nowH - 23 * 3600000; h <= nowH; h += 3600000) { // posledních 24 h
       labels.push(String(new Date(h).getHours()).padStart(2, "0") + ":00");
       data.push(map.get(h) ?? 0);
       keys.push(h);
