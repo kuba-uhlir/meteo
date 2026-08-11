@@ -9,59 +9,78 @@ import { CONFIG } from "../config.js";
 
 const memCache = new Map(); // key -> { ts, data }
 
+// TTL podle typu dat (ms) — jak dlouho brát z cache bez dotazu na API.
+const TTL = {
+  current: 3 * 60 * 1000,             // aktuální data — 3 min
+  todayHistory: 5 * 60 * 1000,        // historie dneška (roste) — 5 min
+  forecast: 20 * 60 * 1000,           // předpověď — 20 min
+  pastDay: 3650 * 24 * 3600 * 1000,   // hotový minulý den — prakticky napořád
+};
+
 function lsKey(key) { return "meteo_cache_" + key; }
 
-// Uloží poslední úspěšná data i do localStorage (offline fallback).
 function persist(key, data) {
-  try {
-    localStorage.setItem(lsKey(key), JSON.stringify({ ts: Date.now(), data }));
-  } catch (_) { /* localStorage plný / nedostupný — ignorujeme */ }
+  try { localStorage.setItem(lsKey(key), JSON.stringify({ ts: Date.now(), data })); }
+  catch (_) { /* localStorage plný/nedostupný */ }
 }
 
 export function loadPersisted(key) {
-  try {
-    const raw = localStorage.getItem(lsKey(key));
-    if (!raw) return null;
-    return JSON.parse(raw); // { ts, data }
-  } catch (_) { return null; }
+  try { const raw = localStorage.getItem(lsKey(key)); return raw ? JSON.parse(raw) : null; }
+  catch (_) { return null; }
 }
 
-async function fetchJson(url, cacheKey) {
-  // in-memory cache
-  const cached = memCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < CONFIG.CACHE_TTL_MS) {
-    return cached.data;
-  }
+// Čerstvá cache (mem + localStorage) do stáří ttl.
+function cacheFresh(key, ttl) {
+  const now = Date.now();
+  const mem = memCache.get(key);
+  if (mem && now - mem.ts < ttl) return mem.data;
+  const p = loadPersisted(key);
+  if (p && now - p.ts < ttl) { memCache.set(key, { ts: p.ts, data: p.data }); return p.data; }
+  return null;
+}
+// Jakákoli uložená data (ignoruje stáří) — fallback při chybě/limitu.
+function cacheAny(key) {
+  const mem = memCache.get(key);
+  if (mem) return mem.data;
+  const p = loadPersisted(key);
+  return p ? p.data : null;
+}
+function cacheSet(key, data) {
+  memCache.set(key, { ts: Date.now(), data });
+  persist(key, data);
+}
+
+// fetch + cache. ttl = jak dlouho servírovat z cache bez dotazu.
+// Při chybě (rate-limit, výpadek, 401) vrátí poslední známá data místo chyby.
+async function fetchJson(url, key, ttl = 0) {
+  const fresh = cacheFresh(key, ttl);
+  if (fresh) return fresh;
 
   let res;
   try {
     res = await fetch(url, { cache: "no-store" });
-  } catch (e) {
-    // Síťová chyba / CORS / offline
-    const err = new Error("Data se teď nepodařilo načíst (dočasný výpadek nebo offline). Zkusím to znovu.");
+  } catch (_) {
+    const stale = cacheAny(key);
+    if (stale) return stale;
+    const err = new Error("Data se nepodařilo načíst (offline nebo výpadek).");
     err.kind = "network";
     throw err;
   }
 
-  if (res.status === 401 || res.status === 403) {
-    const err = new Error("Neplatný nebo chybějící API klíč (WU).");
-    err.kind = "auth";
-    throw err;
-  }
-  if (res.status === 204) {
-    const err = new Error("API nevrátilo žádná data.");
-    err.kind = "empty";
-    throw err;
-  }
+  if (res.status === 204) { const empty = { observations: [] }; cacheSet(key, empty); return empty; }
+
   if (!res.ok) {
-    const err = new Error(`Chyba API: HTTP ${res.status}.`);
-    err.kind = "http";
+    const stale = cacheAny(key);
+    if (stale) return stale; // radši poslední data než chyba (limit/blokace)
+    let err;
+    if (res.status === 429) { err = new Error("Překročen limit API. Zkusím to za chvíli."); err.kind = "rate"; }
+    else if (res.status === 401 || res.status === 403) { err = new Error("Neplatný/blokovaný klíč nebo překročen limit API."); err.kind = "auth"; }
+    else { err = new Error(`Chyba API: HTTP ${res.status}.`); err.kind = "http"; }
     throw err;
   }
 
   const data = await res.json();
-  memCache.set(cacheKey, { ts: Date.now(), data });
-  persist(cacheKey, data);
+  cacheSet(key, data);
   return data;
 }
 
@@ -81,7 +100,7 @@ export async function getCurrent() {
   const url = `${CONFIG.WU_BASE}/observations/current` +
     `?stationId=${encodeURIComponent(CONFIG.STATION_ID)}` +
     `&format=json&units=m&apiKey=${encodeURIComponent(CONFIG.API_KEY)}`;
-  const data = await fetchJson(url, "current");
+  const data = await fetchJson(url, "current", TTL.current);
   const obs = data?.observations?.[0];
   if (!obs) {
     const err = new Error("Stanice nevrátila aktuální data.");
@@ -96,7 +115,7 @@ async function getRapidHistory(range) {
   const url = `${CONFIG.WU_BASE}/observations/all/${range}` +
     `?stationId=${encodeURIComponent(CONFIG.STATION_ID)}` +
     `&format=json&units=m&apiKey=${encodeURIComponent(CONFIG.API_KEY)}`;
-  const data = await fetchJson(url, "hist_" + range);
+  const data = await fetchJson(url, "hist_" + range, TTL.todayHistory);
   return Array.isArray(data?.observations) ? data.observations : [];
 }
 
@@ -117,45 +136,51 @@ function yyyymmdd(daysBack) {
 //   - jen dnešek se stahuje vždy čerstvě
 //   - zbylé nezakešované dny se stahují po malých dávkách (ne 30 naráz)
 async function getHistoryByDays(kind, days) {
-  const today = yyyymmdd(0);
-  const toFetch = [];   // { i, date, key }
-  const result = new Array(days).fill(null); // index podle i (0 = dnes)
+  const result = new Array(days).fill(null); // index i (0 = dnes)
+  const toFetch = [];
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
 
   for (let i = 0; i < days; i++) {
     const date = yyyymmdd(i);
     const key = `hist_${kind}_${date}`;
-    if (date !== today) {
+    if (i >= 1) {
+      // Minulý den je neměnný -> použij cache jen když byla uložena PO konci
+      // toho dne (tj. den je kompletní). dayEnd = 00:00 následujícího dne.
+      const dayEnd = midnight.getTime() - (i - 1) * 86400000;
       const p = loadPersisted(key);
-      if (p?.data?.observations?.length) { result[i] = p.data.observations; continue; }
+      if (p?.data && p.ts >= dayEnd) { result[i] = p.data.observations || []; continue; }
     }
-    toFetch.push({ i, date, key });
+    toFetch.push({ i, date, key, isToday: i === 0 });
   }
 
-  const fetchOne = ({ i, date, key }) => {
+  const fetchOne = ({ i, date, key, isToday }) => {
     const url = `${CONFIG.WU_BASE}/history/${kind}` +
       `?stationId=${encodeURIComponent(CONFIG.STATION_ID)}` +
       `&date=${date}&format=json&units=m&apiKey=${encodeURIComponent(CONFIG.API_KEY)}`;
-    return fetchJson(url, key)
+    return fetchJson(url, key, isToday ? TTL.todayHistory : 0)
       .then((d) => { result[i] = Array.isArray(d?.observations) ? d.observations : []; })
-      .catch(() => { result[i] = []; }); // 204 / chyba dne — přeskoč
+      .catch(() => { result[i] = []; });
   };
 
-  // dávky po 6 (šetrné k WAF)
-  const BATCH = 6;
+  // dávky po 5 s malou pauzou (šetrné k limitu API)
+  const BATCH = 5;
   for (let s = 0; s < toFetch.length; s += BATCH) {
     await Promise.all(toFetch.slice(s, s + BATCH).map(fetchOne));
+    if (s + BATCH < toFetch.length) await new Promise((r) => setTimeout(r, 250));
   }
 
-  // seřaď od nejstaršího po nejnovější (i = days-1 .. 0)
   const out = [];
   for (let i = days - 1; i >= 0; i--) if (result[i]) out.push(...result[i]);
   return out;
 }
 
-// --- Hlavní vstup pro grafy (jednoduchý původní model) ---
+// --- Hlavní vstup pro grafy ---
 //  range: "1day" | "7day" | "30day"
-//   - 24h a 7 dní: přímo rychlá historie WU (observations/all/{range}) = 1 request
-//   - 30 dní: denní agregáty (history/daily po dnech, cachované) — na vyžádání
+//   - 24h: observations/all/1day (1 request)
+//   - 7 dní: history/hourly po dnech (all/7day vrací 401 -> nepoužitelný)
+//   - 30 dní: history/daily po dnech
+//  Minulé dny se cachují napořád (fetchne se jen dnešek), takže po prvním
+//  načtení je 7d/30d prakticky zdarma.
 export async function getHistory(range) {
   if (!configOk()) {
     const err = new Error("Chybí STATION_ID nebo API_KEY v config.js.");
@@ -163,18 +188,17 @@ export async function getHistory(range) {
     throw err;
   }
 
-  if (range === "30day") {
-    const byDay = await getHistoryByDays("daily", 30);
-    if (!byDay.length) {
-      const err = new Error("30denní historii se nepodařilo načíst.");
-      err.kind = "empty";
-      throw err;
-    }
-    return byDay;
-  }
+  if (range === "1day") return getRapidHistory("1day");
 
-  // 1day / 7day — přímé volání WU rychlé historie
-  return getRapidHistory(range);
+  const obs = range === "30day"
+    ? await getHistoryByDays("daily", 30)
+    : await getHistoryByDays("hourly", 7);
+  if (!obs.length) {
+    const err = new Error(`${range === "30day" ? "30denní" : "7denní"} historii se nepodařilo načíst.`);
+    err.kind = "empty";
+    throw err;
+  }
+  return obs;
 }
 
 // --- Open-Meteo: předpověď (hodinová + denní) ---
@@ -201,7 +225,7 @@ export async function getForecast() {
     `&current=temperature_2m,weather_code,wind_speed_10m,is_day`;
   if (CONFIG.OM_MODEL) url += `&models=${encodeURIComponent(CONFIG.OM_MODEL)}`;
 
-  const data = await fetchJson(url, "forecast");
+  const data = await fetchJson(url, "forecast", TTL.forecast);
   if (!data?.hourly || !data?.daily) {
     const err = new Error("Předpověď se nepodařilo načíst.");
     err.kind = "empty";

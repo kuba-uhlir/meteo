@@ -27,7 +27,6 @@ export const CONFIG = {
 
   // --- Chování aplikace ---
   AUTO_REFRESH_MS: 5 * 60 * 1000, // auto-refresh každých 5 minut
-  // Cache naměřených dat/předpovědi (in-memory dedup). 60 s šetří requesty na WU
-  // a brání rate-limitu ("nelze se připojit k API"). 0 = vždy čerstvé ze serveru.
-  CACHE_TTL_MS: 60 * 1000,
+  // Pozn.: cache jednotlivých typů dat (aktuální/historie/předpověď) má vlastní
+  // TTL přímo v js/api.js (konstanta TTL) — minulé dny historie se cachují napořád.
 };
